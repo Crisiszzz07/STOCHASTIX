@@ -1,0 +1,15 @@
+{
+  "name": "stochastix",
+  "private": true,
+  "version": "1.0.0",
+  "description": "STOCHASTIX",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "test": "pnpm --filter web test",
+    "preview": "pnpm --filter web preview",
+    "server": "go run ./server",
+    "server:test": "go test ./..."
+  },
+  "packageManager": "pnpm@10.26.1"
+}
