@@ -1,4 +1,4 @@
-import { BarChart3, Bell, Sigma, Timer } from 'lucide-react';
+import { BarChart3, BarChartIcon, Bell, Sigma, Timer } from 'lucide-react';
 import { DIST_LIST, DISTRIBUTIONS, type DistKey, type Params } from '../engine/distributions';
 import { Button, NumberField, Panel, Segmented } from './ui';
 
@@ -7,6 +7,7 @@ const ICONS: Record<DistKey, typeof Sigma> = {
   poisson: Timer,
   normal: Bell,
   erlang: Sigma,
+  uniform: BarChartIcon,
 };
 
 export function DistributionPanel({

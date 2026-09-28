@@ -75,15 +75,32 @@ export interface QueryResult {
   /** error relativo en %, null si la teórica es 0 */
   relError: number | null;
   absError: number;
+  validated: boolean;
 }
 
 export function evaluateQuery(values: readonly number[], q: Query, dist: DistSpec, p: Params): QueryResult {
   let favorable = 0;
   for (const x of values) if (satisfies(x, q)) favorable++;
+  
   const total = values.length;
   const simulated = total ? favorable / total : 0;
   const theoretical = theoreticalProbability(q, dist, p);
   const absError = Math.abs(simulated - theoretical);
+  
+  // CÁLCULO DEL INTERVALO DE CONFIANZA (95%)
+  let validated = false;
+  if (total > 0) {
+    const z = 1.96; // Valor Z para el 95% de confianza
+    // Margen de error = Z * sqrt( p * (1 - p) / N )
+    const margin = z * Math.sqrt((simulated * (1 - simulated)) / total);
+    
+    const lowerBound = simulated - margin;
+    const upperBound = simulated + margin;
+    
+    // Si la teórica cae dentro del intervalo de la simulada, está validado
+    validated = (theoretical >= lowerBound && theoretical <= upperBound);
+  }
+
   return {
     favorable,
     total,
@@ -91,5 +108,6 @@ export function evaluateQuery(values: readonly number[], q: Query, dist: DistSpe
     theoretical,
     absError,
     relError: theoretical > 0 ? (absError / theoretical) * 100 : null,
+    validated, // Retornamos el veredicto
   };
 }

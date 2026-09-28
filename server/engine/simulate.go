@@ -63,6 +63,22 @@ func openUnit(u float64) float64 {
 }
 
 func negLog(u float64) float64 { return -math.Log(openUnit(u)) }
+// formula de la transformada inversa de la normal, para el caso de la distribucion normal
+func inverseNormal(p float64) float64 {
+	if p <= 0 { return -8.0 }
+	if p >= 1 { return 8.0 }
+	sign := 1.0
+	if p < 0.5 {
+		sign = -1.0
+	} else {
+		p = 1.0 - p
+	}
+	t := math.Sqrt(-2 * math.Log(p))
+	c0, c1, c2 := 2.515517, 0.802853, 0.010328
+	d1, d2, d3 := 1.432788, 0.189269, 0.001308
+	z := t - (c0 + c1*t + c2*t*t)/(1 + d1*t + d2*t*t + d3*t*t*t)
+	return sign * z
+}
 
 // Sample es una variable generada junto con las uniformes que consumió.
 type Sample struct {
@@ -182,6 +198,13 @@ func Validate(dist string, p map[string]float64) error {
 		if p["lambda"] <= 0 {
 			return fmt.Errorf("λ > 0")
 		}
+	case "uniform": // uniforme agregado
+		if err := need(p, "a", "b"); err != nil {
+			return err
+		}
+		if p["a"] >= p["b"] {
+			return fmt.Errorf("A debe ser menor que B")
+		}
 	default:
 		return fmt.Errorf("distribución desconocida %q", dist)
 	}
@@ -262,9 +285,17 @@ outer:
 				}
 				res.Samples = append(res.Samples, Sample{i, rs, float64(x)})
 			}
-		case "normal":
+
+			case "normal":
 			mu, sigma := p["mu"], p["sigma"]
-			if method == "tcl12" {
+			if method == "inverse" {
+				u, ok := take()
+				if !ok {
+					break outer
+				}
+				z := inverseNormal(u) // Llama a la fórmula de Hastings
+				res.Samples = append(res.Samples, Sample{i, []float64{u}, mu + sigma*z})
+			} else if method == "tcl12" {
 				rs := make([]float64, 0, 12)
 				s := 0.0
 				for j := 0; j < 12; j++ {
@@ -277,6 +308,7 @@ outer:
 				}
 				res.Samples = append(res.Samples, Sample{i, rs, mu + sigma*(s-6)})
 			} else {
+				// Box-Muller por defecto
 				u1, ok := take()
 				if !ok {
 					break outer
@@ -293,6 +325,7 @@ outer:
 					res.Samples = append(res.Samples, Sample{i + 1, rs, mu + sigma*radius*math.Sin(theta)})
 				}
 			}
+			
 		case "erlang":
 			k := int(p["k"])
 			rs := make([]float64, 0, k)
@@ -306,6 +339,14 @@ outer:
 				s += negLog(u)
 			}
 			res.Samples = append(res.Samples, Sample{i, rs, s / p["lambda"]})
+
+		case "uniform": // uniforme agregado
+			u, ok := take()
+			if !ok {
+				break outer
+			}
+			a, b := p["a"], p["b"]
+			res.Samples = append(res.Samples, Sample{i, []float64{u}, a + (b-a)*u})
 		}
 	}
 	res.Overflow = len(res.Samples) < n
