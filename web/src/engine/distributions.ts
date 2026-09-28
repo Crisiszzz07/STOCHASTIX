@@ -3,7 +3,7 @@ import {
 } from './theory';
 import { EPS, negLog, openUnit, type UniformSource } from './uniform';
 
-export type DistKey = 'binomial' | 'poisson' | 'normal' | 'erlang';
+export type DistKey = 'binomial' | 'poisson' | 'normal' | 'erlang' | 'uniform'; //agregamos el uniforme 
 export type Params = Record<string, number>;
 
 export interface ParamSpec {
@@ -44,6 +44,18 @@ export interface DistSpec {
 }
 
 const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(3).replace(/0+$/, ''));
+
+// Aproximación racional de Hastings para la inversa de la Normal Estándar Z(p)
+function inverseNormal(p: number): number {
+  if (p <= 0) return -8; // límite práctico para evitar -Infinito
+  if (p >= 1) return 8;
+  const sign = p < 0.5 ? -1 : 1;
+  const t = Math.sqrt(-2 * Math.log(p < 0.5 ? p : 1 - p));
+  const c0 = 2.515517, c1 = 0.802853, c2 = 0.010328;
+  const d1 = 1.432788, d2 = 0.189269, d3 = 0.001308;
+  const z = t - (c0 + c1 * t + c2 * t * t) / (1 + d1 * t + d2 * t * t + d3 * t * t * t);
+  return sign * z;
+}
 
 export const DISTRIBUTIONS: Record<DistKey, DistSpec> = {
   binomial: {
@@ -142,6 +154,13 @@ export const DISTRIBUTIONS: Record<DistKey, DistSpec> = {
         note: 'Convolución de 12 uniformes: media 6, varianza 1.',
         cost: () => '12 U / var',
       },
+      {
+        key: 'inverse',
+        label: 'Transformada Inversa',
+        formula: 'X = μ + σ·Z(R) (Aprox. Hastings)',
+        note: 'Aproximación numérica para la función cuantil de la Normal.',
+        cost: () => '1 U / var',
+      },
     ],
     mean: (p) => p.mu,
     variance: (p) => p.sigma * p.sigma,
@@ -184,6 +203,39 @@ export const DISTRIBUTIONS: Record<DistKey, DistSpec> = {
       if (!(p.lambda > 0)) e.push('λ > 0');
       return e;
     },
+  },
+
+  uniform: { //uniforme continua agregado 
+    key: 'uniform',
+    label: 'Uniforme Continua',
+    notation: (p) => `U(A=${fmt(p.a)}, B=${fmt(p.b)})`,
+    discrete: false,
+    params: [
+      { key: 'a', label: 'Mínimo (A)', symbol: 'A', min: -100, max: 100, step: 0.1, integer: false, default: 0 },
+      { key: 'b', label: 'Máximo (B)', symbol: 'B', min: -100, max: 100, step: 0.1, integer: false, default: 10 },
+    ],
+    methods: [
+      {
+        key: 'inverse',
+        label: 'Transformada inversa',
+        formula: 'X = A + (B - A) * R',
+        note: 'Escala un número uniforme R al intervalo [A, B].',
+        cost: () => '1 U / var',
+      },
+    ],
+    mean: (p) => (p.a + p.b) / 2,
+    variance: (p) => Math.pow(p.b - p.a, 2) / 12,
+    density: (x, p) => (x >= p.a && x <= p.b) ? 1 / (p.b - p.a) : 0,
+    cdf: (x, p) => {
+      if (x < p.a) return 0;
+      if (x > p.b) return 1;
+      return (x - p.a) / (p.b - p.a);
+    },
+    domain: (p) => {
+      const padding = (p.b - p.a) * 0.1; // Margen del 10% para que el gráfico se vea bien
+      return [p.a - padding, p.b + padding]; 
+    },
+    validate: (p) => (p.a < p.b ? [] : ['El mínimo (A) debe ser estrictamente menor que el máximo (B)']),
   },
 };
 
@@ -311,7 +363,12 @@ export function simulate(
       }
       case 'normal': {
         const { mu, sigma } = params;
-        if (method === 'tcl12') {
+        if (method === 'inverse') {
+          const u = take();
+          if (u === null) break outer;
+          const z = inverseNormal(u);
+          samples.push({ i, rs: [u], x: mu + sigma * z });
+        } else if (method === 'tcl12') {
           const rs: number[] = [];
           for (let j = 0; j < 12; j++) {
             const u = take();
@@ -346,6 +403,15 @@ export function simulate(
         samples.push({ i, rs, x: s / lambda });
         break;
       }
+
+      case 'uniform': { // caso del uniforme 
+        const u = take();
+        if (u === null) break outer;
+        const { a, b } = params;
+        samples.push({ i, rs: [u], x: a + (b - a) * u });
+        break;
+      }
+    
     }
   }
   if (samples.length < N) overflow = true;
@@ -371,5 +437,7 @@ export function uniformsPerVariable(dist: DistKey, method: string, p: Params): n
       return method === 'tcl12' ? 12 : 1;
     case 'erlang':
       return p.k;
+    case 'uniform':
+      return 1;
   }
 }

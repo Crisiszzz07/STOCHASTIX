@@ -151,6 +151,21 @@ export function QueryConsole({
             </Sticker>
           )}
         </div>
+      {/* --- NUEVO: VEREDICTO DE VALIDACIÓN --- */}
+        {result.total > 0 && (
+          <div className={`brut flex flex-col justify-center p-3 text-black ${result.validated ? 'bg-green' : 'bg-red text-white'}`}>
+            <div className="font-grotesk text-[10px] font-bold uppercase tracking-widest opacity-80">
+              Intervalo de Confianza (95%)
+            </div>
+            <div className="font-mono text-2xl font-extrabold tracking-tight">
+              {result.validated ? '¡VALIDADO! ✅' : 'NO VALIDADO ❌'}
+            </div>
+            <div className="font-mono text-xs mt-1">
+              La probabilidad teórica {result.validated ? 'cae dentro' : 'está fuera'} del margen de error de la simulada.
+            </div>
+          </div>
+        )}
+        
       </div>
     </div>
   );
