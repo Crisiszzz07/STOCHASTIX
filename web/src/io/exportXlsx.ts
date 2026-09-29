@@ -5,11 +5,12 @@
  * cabeceras fila 4, panel de parámetros a la derecha, fórmulas reales de Excel con
  * su valor ya calculado).
  *
- * Hojas: Resumen general · Pruebas R_i · <Distribución · Método> (una por método) · R_i · Teoría
+ * Hojas: Resumen general · Auditoría R_i · <Distribución · Método> (una por método) · R_i · Auxiliares · Teoría
  */
 import {
   DIST_LIST, simulate, type DistKey, type DistSpec, type MethodSpec, type Params, type SimResult,
 } from '../engine/distributions';
+import { computeAudit, criticalOf, DEFAULT_AUDIT, DIST_ALPHA, DIST_BETA, passes, type AuditKey } from '../engine/audit';
 import { GENERATORS } from '../engine/generators';
 import {
   buildHistogram, chiCritical, chiSquare, sampleStats, type Histogram, type SampleStats,
@@ -108,7 +109,7 @@ class Sheet {
 // Cálculo de todos los métodos
 // ===========================================================================
 export function computeRuns(input: ReportInput): MethodRun[] {
-  const used = new Set<string>(['Resumen general', 'Pruebas R_i', 'R_i', 'Teoría']);
+  const used = new Set<string>(['Resumen general', 'Auditoría R_i', 'Auxiliares', 'R_i', 'Teoría']);
   const runs: MethodRun[] = [];
   for (const spec of DIST_LIST) {
     const params = input.paramsBy[spec.key];
@@ -329,100 +330,249 @@ function methodSheet(run: MethodRun, subtitle: string): { sheet: Sheet; refs: Me
 }
 
 // ===========================================================================
-// Hoja R_i + pruebas de uniformidad de la secuencia
+// Hojas de la secuencia: R_i · Auditoría R_i (panel de la plantilla) · Auxiliares
 // ===========================================================================
-function sequenceSheets(seq: ParsedSequence, subtitle: string): { data: Sheet; tests: Sheet; summary: string[][] } {
+interface AuditRow {
+  name: string;
+  stat: number;
+  crit: number;
+  ok: boolean;
+  statRef: string;
+  critRef: string;
+  stateRef: string;
+}
+
+function sequenceSheets(
+  seq: ParsedSequence,
+  subtitle: string,
+): { data: Sheet; audit: Sheet; aux: Sheet; rows: AuditRow[] } {
   const values = seq.values;
   const n = values.length;
+  const A = computeAudit(values);
+  const specs = seq.audit ?? DEFAULT_AUDIT;
 
-  // ---- R_i: secuencia + columnas auxiliares de Kolmogorov-Smirnov ----------
-  const R = new Sheet('R_i', [8, 13, 30, 3, 8, 13, 11, 14]);
-  R.title('📥  SECUENCIA DE NÚMEROS R_i', `Fuente: ${seq.origin} • ${subtitle}`, 7);
+  // ---- R_i -----------------------------------------------------------------
+  const R = new Sheet('R_i', [8, 13, 40]);
+  R.title('📥  SECUENCIA DE NÚMEROS R_i', `Fuente: ${seq.origin} • ${subtitle}`, 2);
   ['i', 'R_i', 'Observación'].forEach((h, k) => R.set(HEADER_ROW, k, c(h, 'header')));
-  ['k', 'R(k) ordenado', 'k / n', '|k/n − R(k)|'].forEach((h, k) => R.set(HEADER_ROW, 4 + k, c(h, 'header')));
-  const sorted = [...values].sort((a, b) => a - b);
-  let dMax = 0;
   values.forEach((v, k) => {
     const row = FIRST_DATA + k;
     R.set(row, 0, c(k + 1, 'int'));
     R.set(row, 1, c(v, 'num6'));
     R.set(row, 2, c(v === 0 || v === 1 ? 'En frontera: se ajusta a (0,1) al tomar ln' : '', 'plain'));
-    const d = Math.abs((k + 1) / n - sorted[k]);
-    dMax = Math.max(dMax, d);
-    R.set(row, 4, c(k + 1, 'int'));
-    R.set(row, 5, c(sorted[k], 'num6'));
-    R.set(row, 6, f(`${ref(row, 4)}/COUNT(${ref(FIRST_DATA, 1, true)}:${ref(FIRST_DATA + n - 1, 1, true)})`, (k + 1) / n, 'num6'));
-    R.set(row, 7, f(`ABS(${ref(row, 6)}-${ref(row, 5)})`, d, 'num6'));
   });
-  const rRange = `${q('R_i')}!${ref(FIRST_DATA, 1, true)}:${ref(FIRST_DATA + n - 1, 1, true)}`;
-  const dRange = `${q('R_i')}!${ref(FIRST_DATA, 7, true)}:${ref(FIRST_DATA + n - 1, 7, true)}`;
+  const rFirst = FIRST_DATA;
+  const rLast = FIRST_DATA + Math.max(0, n - 1);
+  const rRange = `${q('R_i')}!${ref(rFirst, 1, true)}:${ref(rLast, 1, true)}`;
+  const rCell = (k: number) => `${q('R_i')}!${ref(rFirst + k, 1, true)}`;
+  const N = `COUNT(${rRange})`;
 
-  // ---- Pruebas R_i ---------------------------------------------------------
-  const T = new Sheet('Pruebas R_i', [34, 16, 16, 16, 3, 10, 11, 11, 12, 11, 14]);
-  T.title('🛡️  AUDITORÍA ESTADÍSTICA DE LOS R_i', `Fuente: ${seq.origin} • ${subtitle}`, 10);
-  const mean = n ? values.reduce((a, b) => a + b, 0) / n : 0;
-  const z0 = n ? ((mean - 0.5) * Math.sqrt(n)) / Math.sqrt(1 / 12) : 0;
-  const classes = Array.from({ length: 10 }, (_, k) => ({
-    lo: k / 10,
-    hi: (k + 1) / 10,
-    o: values.filter((v) => v >= k / 10 && (k === 9 ? v <= 1 : v < (k + 1) / 10)).length,
-  }));
-  const e = n / 10;
-  const chi = classes.reduce((s, cl) => s + (e > 0 ? (cl.o - e) ** 2 / e : 0), 0);
-  const ksCrit = n ? 1.36 / Math.sqrt(n) : 0;
+  // ---- Auditoría R_i (panel + cálculos resumidos) ---------------------------
+  const T = new Sheet('Auditoría R_i', [44, 16, 16, 16, 14, 16, 14, 18]);
+  T.title('🛡️  AUDITORÍA ESTADÍSTICA DE LOS R_i', `Fuente: ${seq.origin} • ${subtitle}`, 7);
+  ['Prueba', 'Estadístico', 'Valor Crítico', 'Estado'].forEach((h, k) => T.set(HEADER_ROW, k, c(h, 'header')));
+  const panelFirst = HEADER_ROW + 1;
+  const statCell: Partial<Record<AuditKey, string>> = {};
 
-  // Tabla principal (como el panel «AUDITORÍA ESTADÍSTICA» de la plantilla)
-  ['Prueba', 'Estadístico', 'Valor crítico', 'Estado'].forEach((h, k) => T.set(HEADER_ROW, k, c(h, 'header')));
-  // Auxiliares debajo
-  let r = HEADER_ROW + 6;
-  T.section(r++, 0, '📐  Prueba de promedios', 2);
+  // ---- Auxiliares (tablas largas, una al lado de la otra) --------------------
+  const X = new Sheet('Auxiliares', [
+    7, 13, 11, 14, 3, // K-S
+    7, 12, 12, 11, 11, 3, // Monte Carlo
+    7, 12, 11, 11, 11, 12, 3, // Distancia
+    7, 12, 12, 9, 9, 11, // Series
+  ]);
+  X.title('🧮  AUXILIARES — Trazabilidad de las pruebas de los R_i', `Cada celda es una fórmula sobre la hoja «R_i» • ${subtitle}`, 23);
+  const KS = 0, MC = 5, DI = 11, SE = 18;
+  X.section(HEADER_ROW - 1, KS, '📈  Kolmogorov-Smirnov', 4);
+  ['k', 'R(k) ordenado', 'k/N', '|k/N − R(k)|'].forEach((h, k) => X.set(HEADER_ROW, KS + k, c(h, 'header')));
+  X.section(HEADER_ROW - 1, MC, '🎯  Monte Carlo para π', 5);
+  ['Par j', 'X = R(2j−1)', 'Y = R(2j)', 'X²+Y²', '¿Dentro?'].forEach((h, k) => X.set(HEADER_ROW, MC + k, c(h, 'header')));
+  X.section(HEADER_ROW - 1, DI, '📏  Distancia (Coss Bu)', 6);
+  ['i', 'r_i', '¿En [α,β]?', 'Racha activa', 'Contador', 'Racha (bucket)'].forEach((h, k) => X.set(HEADER_ROW, DI + k, c(h, 'header')));
+  X.section(HEADER_ROW - 1, SE, '🔳  Series (Coss Bu)', 6);
+  ['i', 'X = r_i', 'Y = r_(i+1)', 'BinX', 'BinY', 'Bin (0-24)'].forEach((h, k) => X.set(HEADER_ROW, SE + k, c(h, 'header')));
+
+  // Constantes de Distancia (en la hoja de auditoría, como en la plantilla)
+  let r = panelFirst + specs.length + 3;
+  const note = seq.audit
+    ? `Pruebas tomadas del panel «AUDITORÍA ESTADÍSTICA» de ${seq.origin}, calculadas con sus mismas fórmulas.`
+    : 'El archivo no traía panel de auditoría: se usan las mismas pruebas y valores críticos de la plantilla de simulacion-trabajo.';
+  T.set(panelFirst + specs.length + 1, 0, c(note, 'note'));
+  T.merges.push(`${ref(panelFirst + specs.length + 1, 0)}:${ref(panelFirst + specs.length + 1, 7)}`);
+
+  // Promedios
+  T.section(r++, 0, '📐  Prueba de Promedios — Z_0', 2);
   const meanRow = r;
-  T.set(r, 0, c('R̄ = AVERAGE(R_i)', 'label')); T.set(r++, 1, f(`AVERAGE(${rRange})`, mean, 'num6'));
+  T.set(r, 0, c('Media (R̄) = AVERAGE(R_i)', 'label')); T.set(r++, 1, f(`AVERAGE(${rRange})`, A.mean, 'num6'));
   const nRow = r;
-  T.set(r, 0, c('n = COUNT(R_i)', 'label')); T.set(r++, 1, f(`COUNT(${rRange})`, n, 'int'));
+  T.set(r, 0, c('N = COUNT(R_i)', 'label')); T.set(r++, 1, f(N, n, 'int'));
   const zRow = r;
-  T.set(r, 0, c('Z₀ = (R̄ − 0.5)·√n / √(1/12)', 'label'));
-  T.set(r++, 1, f(`(${ref(meanRow, 1)}-0.5)*SQRT(${ref(nRow, 1)})/SQRT(1/12)`, z0, 'num6'));
+  T.set(r, 0, c('Z_0 = (R̄−0.5)·√N / √(1/12)', 'label'));
+  T.set(r++, 1, f(`(${ref(meanRow, 1)}-0.5)*SQRT(${ref(nRow, 1)})/SQRT(1/12)`, A.z0, 'num6'));
+  statCell.promedios = `ABS(${ref(zRow, 1)})`;
+  r++;
 
-  // Frecuencias (a la derecha)
-  const FQ = 5;
-  T.section(HEADER_ROW - 1 + 6, FQ, '📊  Prueba de frecuencias (10 clases)', 6);
-  ['Clase', 'Lím. inf', 'Lím. sup', 'Oi', 'Ei', '(Oi−Ei)²/Ei'].forEach((h, k) => T.set(HEADER_ROW + 6, FQ + k, c(h, 'header')));
-  classes.forEach((cl, k) => {
-    const row = HEADER_ROW + 7 + k;
-    T.set(row, FQ, c(k, 'int'));
-    T.set(row, FQ + 1, c(cl.lo, 'num4'));
-    T.set(row, FQ + 2, c(cl.hi, 'num4'));
-    T.set(row, FQ + 3, f(
+  // Frecuencias / Entropía
+  T.section(r++, 0, '📊  Frecuencias / Entropía — 10 clases', 8);
+  ['Clase (k)', 'Límite inf.', 'Límite sup.', 'Oi', 'Ei', '(Oi−Ei)²/Ei', 'pi = Oi/N', '−pi·log2(pi)'].forEach((h, k) => T.set(r, k, c(h, 'header')));
+  r++;
+  const clFirst = r;
+  A.classes.forEach((cl, k) => {
+    const row = r++;
+    T.set(row, 0, c(k, 'int'));
+    T.set(row, 1, c(cl.lo, 'num4'));
+    T.set(row, 2, c(cl.hi, 'num4'));
+    T.set(row, 3, f(
       k === 9
-        ? `COUNTIFS(${rRange},">="&${ref(row, FQ + 1)},${rRange},"<="&${ref(row, FQ + 2)})`
-        : `COUNTIFS(${rRange},">="&${ref(row, FQ + 1)},${rRange},"<"&${ref(row, FQ + 2)})`,
+        ? `COUNTIFS(${rRange},">="&${ref(row, 1)})`
+        : `COUNTIFS(${rRange},">="&${ref(row, 1)},${rRange},"<"&${ref(row, 2)})`,
       cl.o, 'int',
     ));
-    T.set(row, FQ + 4, f(`COUNT(${rRange})/10`, e, 'num4'));
-    T.set(row, FQ + 5, f(`IF(${ref(row, FQ + 4)}>0,(${ref(row, FQ + 3)}-${ref(row, FQ + 4)})^2/${ref(row, FQ + 4)},0)`,
-      e > 0 ? (cl.o - e) ** 2 / e : 0, 'num4'));
+    T.set(row, 4, f(`${N}/10`, cl.e, 'num4'));
+    T.set(row, 5, f(`IF(${ref(row, 4)}>0,(${ref(row, 3)}-${ref(row, 4)})^2/${ref(row, 4)},0)`, cl.chi, 'num4'));
+    T.set(row, 6, f(`IF(${N}>0,${ref(row, 3)}/${N},0)`, cl.p, 'num6'));
+    T.set(row, 7, f(`IF(${ref(row, 3)}>0,-${ref(row, 6)}*LOG(${ref(row, 6)},2),0)`, cl.h, 'num6'));
   });
-  const chiFirst = HEADER_ROW + 7;
-  const chiLast = chiFirst + 9;
+  statCell.frecuencias = `SUM(${ref(clFirst, 5)}:${ref(r - 1, 5)})`;
+  statCell.entropia = `SUM(${ref(clFirst, 7)}:${ref(r - 1, 7)})`;
+  r++;
 
-  const tests: [string, string, number, string, number, boolean][] = [
-    ['Promedios (|Z₀|)', `ABS(${ref(zRow, 1)})`, Math.abs(z0), '1.96', 1.96, Math.abs(z0) < 1.96],
-    ['Frecuencias (χ², 9 gl)', `SUM(${ref(chiFirst, FQ + 5)}:${ref(chiLast, FQ + 5)})`, chi, '16.919', 16.919, chi < 16.919],
-    ['Kolmogorov-Smirnov (Dₙ)', `MAX(${dRange})`, dMax, `1.36/SQRT(${ref(nRow, 1)})`, ksCrit, dMax < ksCrit],
-  ];
-  const summary: string[][] = [];
-  tests.forEach(([name, formula, value, critF, critV, ok], k) => {
-    const row = HEADER_ROW + 1 + k;
-    T.set(row, 0, c(name, 'label'));
-    T.set(row, 1, f(formula, value, 'num6'));
-    T.set(row, 2, f(critF, critV, 'num6'));
-    T.set(row, 3, f(`IF(${ref(row, 1)}<${ref(row, 2)},${strLit(PASS)},${strLit(FAIL)})`, ok ? PASS : FAIL, ok ? 'ok' : 'bad'));
-    summary.push([name, `${q('Pruebas R_i')}!${ref(row, 3, true)}`, ok ? PASS : FAIL]);
+  // Kolmogorov-Smirnov (columnas en Auxiliares)
+  A.sorted.forEach((v, k) => {
+    const row = FIRST_DATA + k;
+    X.set(row, KS, c(k + 1, 'int'));
+    X.set(row, KS + 1, c(v, 'num6'));
+    X.set(row, KS + 2, f(`${ref(row, KS)}/${N}`, (k + 1) / n, 'num6'));
+    X.set(row, KS + 3, f(`ABS(${ref(row, KS + 2)}-${ref(row, KS + 1)})`, Math.abs((k + 1) / n - v), 'num6'));
   });
-  T.set(r + 1, 0, c('Nivel de significancia α = 0.05. Mismas pruebas que la auditoría del generador simulacion-trabajo.', 'note'));
-  T.merges.push(`${ref(r + 1, 0)}:${ref(r + 1, 3)}`);
-  return { data: R, tests: T, summary };
+  const ksRange = `${q('Auxiliares')}!${ref(FIRST_DATA, KS + 3, true)}:${ref(FIRST_DATA + Math.max(0, n - 1), KS + 3, true)}`;
+  statCell.ks = `MAX(${ksRange})`;
+
+  // Monte Carlo para π
+  for (let j = 1; j <= A.pairs; j++) {
+    const row = FIRST_DATA + j - 1;
+    const x = values[2 * j - 2];
+    const y = values[2 * j - 1];
+    X.set(row, MC, c(j, 'int'));
+    X.set(row, MC + 1, f(`INDEX(${rRange},2*${ref(row, MC)}-1)`, x, 'num6'));
+    X.set(row, MC + 2, f(`INDEX(${rRange},2*${ref(row, MC)})`, y, 'num6'));
+    X.set(row, MC + 3, f(`${ref(row, MC + 1)}^2+${ref(row, MC + 2)}^2`, x * x + y * y, 'num6'));
+    X.set(row, MC + 4, f(`IF(${ref(row, MC + 3)}<=1,1,0)`, x * x + y * y <= 1 ? 1 : 0, 'int'));
+  }
+  const mcRange = `${q('Auxiliares')}!${ref(FIRST_DATA, MC + 4, true)}:${ref(FIRST_DATA + Math.max(0, A.pairs - 1), MC + 4, true)}`;
+  T.section(r++, 0, '🎯  Monte Carlo para π — pares (R_2j−1, R_2j)', 2);
+  const pairsRow = r;
+  T.set(r, 0, c('Pares totales', 'label')); T.set(r++, 1, f(`INT(${N}/2)`, A.pairs, 'int'));
+  const hitsRow = r;
+  T.set(r, 0, c('Aciertos (dentro del círculo)', 'label')); T.set(r++, 1, f(A.pairs ? `SUM(${mcRange})` : '0', A.hits, 'int'));
+  const piRow = r;
+  T.set(r, 0, c('π estimado = 4 × Aciertos / Pares', 'label'));
+  T.set(r++, 1, f(`IF(${ref(pairsRow, 1)}=0,0,4*${ref(hitsRow, 1)}/${ref(pairsRow, 1)})`, A.piEst, 'num6'));
+  const errRow = r;
+  T.set(r, 0, c('Error = |π estimado − π|', 'label'));
+  T.set(r++, 1, f(`IF(${ref(pairsRow, 1)}=0,0,ABS(${ref(piRow, 1)}-PI()))`, A.stat.montecarlo, 'num6'));
+  statCell.montecarlo = ref(errRow, 1);
+  r++;
+
+  // Distancia (Coss Bu)
+  T.section(r++, 0, '📏  Distancia (Coss Bu) — racha entre aciertos en [α, β]', 5);
+  const alphaRow = r;
+  T.set(r, 0, c('α (constante del método)', 'label')); T.set(r++, 1, c(DIST_ALPHA, 'num4'));
+  const betaRow = r;
+  T.set(r, 0, c('β (constante del método)', 'label')); T.set(r++, 1, c(DIST_BETA, 'num4'));
+  const thetaRow = r;
+  T.set(r, 0, c('θ = β − α', 'label')); T.set(r++, 1, f(`${ref(betaRow, 1)}-${ref(alphaRow, 1)}`, DIST_BETA - DIST_ALPHA, 'num4'));
+  const aRef = `${q('Auditoría R_i')}!${ref(alphaRow, 1, true)}`;
+  const bRef = `${q('Auditoría R_i')}!${ref(betaRow, 1, true)}`;
+  A.distRows.forEach((d, k) => {
+    const row = FIRST_DATA + k;
+    X.set(row, DI, c(k + 1, 'int'));
+    X.set(row, DI + 1, f(rCell(k), d.r, 'num6'));
+    X.set(row, DI + 2, f(`IF(AND(${ref(row, DI + 1)}>=${aRef},${ref(row, DI + 1)}<=${bRef}),1,0)`, d.inRange, 'int'));
+    if (k === 0) {
+      X.set(row, DI + 3, f(ref(row, DI + 2), d.active, 'int'));
+      X.set(row, DI + 4, c(0, 'int'));
+      X.set(row, DI + 5, c(null, 'plain'));
+    } else {
+      const p = row - 1;
+      X.set(row, DI + 3, f(`IF(OR(${ref(p, DI + 3)}=1,${ref(row, DI + 2)}=1),1,0)`, d.active, 'int'));
+      X.set(row, DI + 4, f(`IF(${ref(row, DI + 2)}=1,0,IF(${ref(p, DI + 3)}=1,${ref(p, DI + 4)}+1,0))`, d.counter, 'int'));
+      X.set(row, DI + 5, f(`IF(AND(${ref(row, DI + 2)}=1,${ref(p, DI + 3)}=1),MIN(${ref(p, DI + 4)},3),"")`, d.bucket ?? '', 'int'));
+    }
+  });
+  const bucketRange = `${q('Auxiliares')}!${ref(FIRST_DATA, DI + 5, true)}:${ref(FIRST_DATA + Math.max(0, n - 1), DI + 5, true)}`;
+  ['Bucket (racha)', 'Oi', 'Prob. teórica', 'Ei = ΣOi × p', '(Oi−Ei)²/Ei'].forEach((h, k) => T.set(r, k, c(h, 'header')));
+  r++;
+  const bFirst = r;
+  const probF = [
+    ref(thetaRow, 1, true),
+    `${ref(thetaRow, 1, true)}*(1-${ref(thetaRow, 1, true)})`,
+    `${ref(thetaRow, 1, true)}*(1-${ref(thetaRow, 1, true)})^2`,
+    `(1-${ref(thetaRow, 1, true)})^3`,
+  ];
+  A.distBuckets.forEach((b, k) => {
+    const row = r++;
+    T.set(row, 0, c(b.label, k === 3 ? 'plain' : 'int'));
+    T.set(row, 1, f(`COUNTIFS(${bucketRange},${k})`, b.o, 'int'));
+    T.set(row, 2, f(probF[k], b.p, 'num6'));
+    T.set(row, 3, f(`SUM(${ref(bFirst, 1, true)}:${ref(bFirst + 3, 1, true)})*${ref(row, 2)}`, b.e, 'num4'));
+    T.set(row, 4, f(`IF(${ref(row, 3)}>0,(${ref(row, 1)}-${ref(row, 3)})^2/${ref(row, 3)},0)`, b.chi, 'num4'));
+  });
+  statCell.distancia = `SUM(${ref(bFirst, 4)}:${ref(r - 1, 4)})`;
+  r++;
+
+  // Series (Coss Bu)
+  for (let i = 0; i + 1 < n; i++) {
+    const row = FIRST_DATA + i;
+    const x = values[i];
+    const y = values[i + 1];
+    const bx = Math.min(Math.floor(x * 5), 4);
+    const by = Math.min(Math.floor(y * 5), 4);
+    X.set(row, SE, c(i + 1, 'int'));
+    X.set(row, SE + 1, f(rCell(i), x, 'num6'));
+    X.set(row, SE + 2, f(rCell(i + 1), y, 'num6'));
+    X.set(row, SE + 3, f(`MIN(INT(${ref(row, SE + 1)}*5),4)`, bx, 'int'));
+    X.set(row, SE + 4, f(`MIN(INT(${ref(row, SE + 2)}*5),4)`, by, 'int'));
+    X.set(row, SE + 5, f(`${ref(row, SE + 3)}*5+${ref(row, SE + 4)}`, bx * 5 + by, 'int'));
+  }
+  const binRange = `${q('Auxiliares')}!${ref(FIRST_DATA, SE + 5, true)}:${ref(FIRST_DATA + Math.max(0, n - 2), SE + 5, true)}`;
+  T.section(r++, 0, '🔳  Series (Coss Bu) — pares solapados en cuadrícula 5×5', 4);
+  ['Bin (0-24)', 'Oi', 'Ei = (N−1)/25', '(Oi−Ei)²'].forEach((h, k) => T.set(r, k, c(h, 'header')));
+  r++;
+  const sFirst = r;
+  A.seriesBins.forEach((b, k) => {
+    const row = r++;
+    T.set(row, 0, c(k, 'int'));
+    T.set(row, 1, f(n > 1 ? `COUNTIFS(${binRange},${k})` : '0', b.o, 'int'));
+    T.set(row, 2, f(`(${N}-1)/25`, b.e, 'num4'));
+    T.set(row, 3, f(`(${ref(row, 1)}-${ref(row, 2)})^2`, b.d, 'num4'));
+  });
+  const sPairsRow = r;
+  T.set(r, 0, c('Pares de la serie = N − 1', 'label')); T.set(r++, 1, f(`${N}-1`, n - 1, 'int'));
+  const sChiRow = r;
+  T.set(r, 0, c('χ² Series = (25/Pares) × Σ(Oi−Ei)²', 'label'));
+  T.set(r++, 1, f(`(25/MAX(${ref(sPairsRow, 1)},1))*SUM(${ref(sFirst, 3)}:${ref(sFirst + 24, 3)})`, A.stat.series, 'num4'));
+  statCell.series = ref(sChiRow, 1);
+
+  // ---- Panel principal (como H5:K12 de la plantilla) -------------------------
+  const rows: AuditRow[] = [];
+  specs.forEach((sp, k) => {
+    const row = panelFirst + k;
+    const stat = A.stat[sp.key];
+    const crit = criticalOf(sp, n);
+    const ok = passes(sp, stat, n);
+    T.set(row, 0, c(sp.name, 'label'));
+    T.set(row, 1, f(statCell[sp.key]!, stat, 'num6'));
+    T.set(row, 2, sp.critical === null ? f(`1.36/SQRT(${N})`, crit, 'num6') : c(crit, 'num6'));
+    T.set(row, 3, f(
+      `IF(${ref(row, 1)}${sp.op}${ref(row, 2)},${strLit(PASS)},${strLit(FAIL)})`,
+      ok ? PASS : FAIL, ok ? 'ok' : 'bad',
+    ));
+    const ext = (col: number) => `${q('Auditoría R_i')}!${ref(row, col, true)}`;
+    rows.push({ name: sp.name, stat, crit, ok, statRef: ext(1), critRef: ext(2), stateRef: ext(3) });
+  });
+
+  return { data: R, audit: T, aux: X, rows };
 }
 
 // ===========================================================================
@@ -457,7 +607,7 @@ function theorySheet(runs: MethodRun[], subtitle: string): Sheet {
 export function buildReport(input: ReportInput, runs = computeRuns(input)): Uint8Array {
   const date = input.date ?? new Date();
   const subtitle = `STOCHASTIX • Exportado ${date.toLocaleString('es')} • Fuente: ${input.seq.origin}`;
-  const { data, tests, summary } = sequenceSheets(input.seq, subtitle);
+  const { data, audit, aux, rows: auditRows } = sequenceSheets(input.seq, subtitle);
   const methodSheets = runs.map((run) => (run.error ? null : methodSheet(run, subtitle)));
 
   // ---- Resumen general -----------------------------------------------------
@@ -493,16 +643,28 @@ export function buildReport(input: ReportInput, runs = computeRuns(input)): Uint
   });
   r++;
 
-  // Pruebas de uniformidad (enlazadas a su hoja)
-  S.section(r++, 0, '🛡️  Pruebas de uniformidad de los R_i', 4);
-  summary.forEach(([name, cellRef, value]) => {
-    S.set(r, 0, c(name, 'label'));
+  // Auditoría de los R_i (las mismas pruebas del panel de la plantilla, enlazadas a su hoja)
+  S.section(r++, 0, '🛡️  Auditoría estadística de los R_i', 6);
+  ['Prueba', '', '', 'Estadístico', 'Valor crítico', 'Estado'].forEach((h, k) => S.set(r, k, c(h || null, 'header')));
+  S.merges.push(`${ref(r, 0)}:${ref(r, 2)}`);
+  r++;
+  auditRows.forEach((a) => {
+    S.set(r, 0, c(a.name, 'label'));
     S.merges.push(`${ref(r, 0)}:${ref(r, 2)}`);
     S.set(r, 1, c(null, 'label')); S.set(r, 2, c(null, 'label'));
-    S.set(r, 3, f(cellRef, value, value === PASS ? 'ok' : 'bad'));
+    S.set(r, 3, f(a.statRef, a.stat, 'num6'));
+    S.set(r, 4, f(a.critRef, a.crit, 'num6'));
+    S.set(r, 5, f(a.stateRef, a.ok ? PASS : FAIL, a.ok ? 'ok' : 'bad'));
     r++;
   });
-  r++;
+  S.set(r, 0, c('Pruebas aprobadas', 'label'));
+  S.merges.push(`${ref(r, 0)}:${ref(r, 2)}`);
+  S.set(r, 1, c(null, 'label')); S.set(r, 2, c(null, 'label'));
+  S.set(r, 3, f(
+    `COUNTIF(${ref(r - auditRows.length, 5)}:${ref(r - 1, 5)},${strLit(PASS)})&" de ${auditRows.length}"`,
+    `${auditRows.filter((a) => a.ok).length} de ${auditRows.length}`, 'plain',
+  ));
+  r += 2;
 
   // Comparación de todos los métodos
   S.section(r++, 0, '🎲  Todas las distribuciones y métodos', cols.length);
@@ -566,9 +728,10 @@ export function buildReport(input: ReportInput, runs = computeRuns(input)): Uint
 
   return buildWorkbook([
     S.spec(),
-    tests.spec(),
+    audit.spec(),
     ...methodSheets.filter((m): m is NonNullable<typeof m> => !!m).map((m) => m.sheet.spec({ row: FIRST_DATA, col: 0 })),
     data.spec({ row: FIRST_DATA, col: 0 }),
+    aux.spec({ row: FIRST_DATA, col: 0 }),
     theorySheet(runs, subtitle).spec({ row: FIRST_DATA, col: 0 }),
   ]);
 }

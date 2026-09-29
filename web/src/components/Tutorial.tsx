@@ -206,7 +206,8 @@ const STEPS: Step[] = [
         <p className="mt-2">
           Para entregar el trabajo usa <b>«Exportar reporte completo .xlsx»</b> (en el panel 04): simula{' '}
           <b>todas las distribuciones con todos sus métodos</b> con tus <K>R_i</K> y reúne en un Excel la comparación,
-          la validación y el χ² de cada uno, sus variables paso a paso y las pruebas de uniformidad de los <K>R_i</K>.
+          la validación y el χ² de cada uno, sus variables paso a paso y las 7 pruebas de auditoría de tu plantilla sobre los{' '}
+          <K>R_i</K>.
         </p>
       </>
     ),

@@ -43,9 +43,9 @@ describe('reporte .xlsx completo', () => {
     const sheets = readWorkbook(bytes);
     const names = sheets.map((s) => s.name);
     expect(names[0]).toBe('Resumen general');
-    expect(names[1]).toBe('Pruebas R_i');
-    expect(names.slice(-2)).toEqual(['R_i', 'Teoría']);
-    expect(names).toHaveLength(expected + 4);
+    expect(names[1]).toBe('Auditoría R_i');
+    expect(names.slice(-3)).toEqual(['R_i', 'Auxiliares', 'Teoría']);
+    expect(names).toHaveLength(expected + 5);
     runs.forEach((r) => expect(names).toContain(r.sheet));
     names.forEach((n) => expect(n.length).toBeLessThanOrEqual(31));
   });
@@ -66,6 +66,17 @@ describe('reporte .xlsx completo', () => {
     expect(runs.find((r) => r.spec.key === 'uniform')?.error).toMatch(/inválidos/);
     const names = readWorkbook(buildReport(inp, runs)).map((s) => s.name);
     expect(names.some((n) => n.startsWith('Uniforme'))).toBe(false);
+  });
+
+  it('copia las 7 pruebas del panel de auditoría de la plantilla', () => {
+    const sheets = readWorkbook(buildReport(input()));
+    const audit = sheets.find((s) => s.name === 'Auditoría R_i')!;
+    const names = [5, 6, 7, 8, 9, 10, 11].map((r) => audit.cells.get(`A${r}`)?.value);
+    expect(names).toEqual([
+      'Promedios (Z_0)', 'Frecuencias (Chi-cuadrada)', 'Kolmogorov-Smirnov (D_n)', 'Entropía de Shannon (Bits)',
+      'Monte Carlo para Pi (Error Absoluto)', 'Distancia (Coss Bu)', 'Series (Coss Bu)',
+    ]);
+    expect(audit.cells.get('D5')?.value).toBe('✅ APROBADO');
   });
 
   it('la hoja R_i se puede volver a cargar como fuente', () => {

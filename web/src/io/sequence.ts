@@ -1,3 +1,4 @@
+import type { AuditSpec } from '../engine/audit';
 import type { GeneratorMethod } from '../engine/generators';
 
 export interface Issue {
@@ -21,6 +22,8 @@ export interface ParsedSequence {
   boundary: number;
   errors: Issue[];
   warnings: string[];
+  /** pruebas del panel «AUDITORÍA ESTADÍSTICA» de la plantilla, si el archivo lo trae */
+  audit?: AuditSpec[];
 }
 
 export function emptySequence(origin: string, format: ParsedSequence['format']): ParsedSequence {

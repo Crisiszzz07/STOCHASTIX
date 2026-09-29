@@ -14,6 +14,7 @@
  * (usando los parámetros de F:G). Si alguien pega números directamente en R_i
  * (o guarda el archivo desde Excel, que sí cachea), se usan esos números.
  */
+import { auditKeyOf, type AuditSpec } from '../engine/audit';
 import { generateSequence, GENERATORS, type GeneratorMethod } from '../engine/generators';
 import { readWorkbook, type Cell, type Sheet } from './xlsx';
 import { emptySequence, pushValue, type ParsedSequence } from './sequence';
@@ -86,6 +87,33 @@ function readParams(sheet: Sheet): Record<string, number> {
   return params;
 }
 
+/**
+ * Panel «🛡️ AUDITORÍA ESTADÍSTICA»: Prueba | Estadístico | Valor Crítico | Estado.
+ * Se toman el nombre, el valor crítico (número fijo o 1.36/√N en K-S) y el sentido
+ * de la comparación que usa la fórmula de Estado (IF(I<J, …) o IF(I>J, …)).
+ */
+function readAudit(sheet: Sheet): AuditSpec[] | undefined {
+  for (const [addr, cell] of sheet.cells) {
+    if (!/auditor[ií]a/i.test(text(cell))) continue;
+    const col = COLS.indexOf(addr.replace(/\d+$/, ''));
+    const row = parseInt(addr.replace(/^[A-Z]+/, ''), 10);
+    const out: AuditSpec[] = [];
+    for (let r = row + 2; r < row + 30; r++) {
+      const name = text(sheet.cells.get(ref(col, r)));
+      if (!name) break;
+      const key = auditKeyOf(name);
+      if (!key) continue;
+      const critCell = sheet.cells.get(ref(col + 2, r));
+      const critical = num(critCell) ?? (critCell?.formula && /sqrt/i.test(critCell.formula) ? null : NaN);
+      const state = sheet.cells.get(ref(col + 3, r))?.formula ?? '';
+      const op = /^\s*=?\s*IF\(\s*[A-Z]+\d+\s*>/i.test(state) ? '>' : '<';
+      if (critical === null || Number.isFinite(critical)) out.push({ key, name, critical, op });
+    }
+    return out.length ? out : undefined;
+  }
+  return undefined;
+}
+
 export function parseTemplateWorkbook(data: Uint8Array, origin: string): ParsedSequence {
   const seq = emptySequence(origin, 'xlsx');
   const sheets = readWorkbook(data);
@@ -101,6 +129,7 @@ export function parseTemplateWorkbook(data: Uint8Array, origin: string): ParsedS
   const generator = detectGenerator(sheet.name) ?? detectGenerator(text(sheet.cells.get('A1')));
   seq.generator = generator;
   seq.params = params;
+  seq.audit = readAudit(sheet);
 
   // Filas de datos: desde la cabecera hasta que la columna i deje de ser numérica.
   const rows: { row: number; r: Cell | undefined; x: Cell | undefined }[] = [];

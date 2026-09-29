@@ -50,10 +50,11 @@ Cada distribución usa sus propios parámetros y su propia pregunta (la página 
 
 | Hoja | Contenido |
 |---|---|
-| **Resumen general** | Fuente de R_i, resultado de las pruebas de uniformidad y una tabla comparativa de todos los métodos: N generadas, estado, media y varianza (simulada vs. teórica), favorables, P simulada, P teórica, error relativo, IC 95 %, veredicto, χ² y enlace a su hoja. ★ marca el método que se estaba viendo. |
-| **Pruebas R_i** | Promedios (Z₀), Frecuencias (χ², 10 clases) y Kolmogorov-Smirnov, como la auditoría del generador. |
+| **Resumen general** | Fuente de R_i, resultado de la auditoría de los R_i y una tabla comparativa de todos los métodos: N generadas, estado, media y varianza (simulada vs. teórica), favorables, P simulada, P teórica, error relativo, IC 95 %, veredicto, χ² y enlace a su hoja. ★ marca el método que se estaba viendo. |
+| **Auditoría R_i** | Las 7 pruebas del panel «AUDITORÍA ESTADÍSTICA» de la plantilla (Promedios, Frecuencias, Kolmogorov-Smirnov, Entropía de Shannon, Monte Carlo para π, Distancia y Series de Coss Bu), leídas del archivo subido y calculadas con las mismas fórmulas de su hoja «Auxiliares». |
 | **Distribución · Método** (una por método) | Variables paso a paso (`i · R_1…R_m · Nº R · X_i · ¿Cumple?`), panel con parámetros, condición, validación IC 95 %, estadísticos y χ², y tabla de frecuencias. |
-| **R_i** | La secuencia completa y las columnas ordenadas de Kolmogorov-Smirnov. Se puede volver a cargar en la página como fuente. |
+| **R_i** | La secuencia completa. Se puede volver a cargar en la página como fuente. |
+| **Auxiliares** | Tablas fila a fila de Kolmogorov-Smirnov, Monte Carlo, Distancia y Series, con fórmulas. |
 | **Teoría** | f(x) o p(k) y F(x) de cada distribución. |
 
 ## Distribuciones y métodos
