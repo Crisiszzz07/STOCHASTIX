@@ -60,7 +60,7 @@ function findLayout(sheet: Sheet): Layout | null {
       const t = text(sheet.cells.get(ref(col, row)));
       if (t === 'i') colI = col;
       else if (/^X_i/i.test(t)) colX = col;
-      else if (/^R_i/i.test(t)) colR = col;
+      else if (/^R_i(\s*\(.*\))?$/i.test(t)) colR = col;
       else if (/^estado/i.test(t)) colState = col;
     }
     if (colR >= 0) return { headerRow: row, colI, colX, colR, colState };

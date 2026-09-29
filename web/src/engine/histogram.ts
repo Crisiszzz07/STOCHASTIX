@@ -143,3 +143,10 @@ export function chiSquare(h: Histogram): { stat: number; df: number; classes: nu
   const stat = groups.reduce((s, g) => s + (g.o - g.e) ** 2 / g.e, 0);
   return { stat, df: Math.max(1, groups.length - 1), classes: groups.length };
 }
+
+/** Valor crítico χ²(α=0.05, gl) por la aproximación de Wilson-Hilferty. */
+export function chiCritical(df: number): number {
+  const z = 1.6448536;
+  const a = 2 / (9 * df);
+  return df * (1 - a + z * Math.sqrt(a)) ** 3;
+}

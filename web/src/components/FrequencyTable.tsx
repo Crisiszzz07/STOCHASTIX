@@ -1,13 +1,6 @@
-import { chiSquare, type Histogram } from '../engine/histogram';
+import { chiCritical, chiSquare, type Histogram } from '../engine/histogram';
 import { fmtNum, satisfies, type Query } from '../engine/query';
 import { Sticker } from './ui';
-
-/** Valor crítico χ²(α=0.05, gl) por la aproximación de Wilson-Hilferty. */
-function chiCritical(df: number): number {
-  const z = 1.6448536;
-  const a = 2 / (9 * df);
-  return df * (1 - a + z * Math.sqrt(a)) ** 3;
-}
 
 export function FrequencyTable({ hist, query }: { hist: Histogram; query: Query }) {
   const N = hist.bins.reduce((s, b) => s + b.count, 0);

@@ -203,6 +203,11 @@ const STEPS: Step[] = [
           Abre <b>05 · Data Drawer</b> para ver el paso a paso de cada variable: <K>i, R₁, R₂, …, X_i, ¿cumple?</K>. Filtra
           por las que cumplen y pulsa <b>«Exportar CSV»</b>.
         </p>
+        <p className="mt-2">
+          Para entregar el trabajo usa <b>«Exportar reporte completo .xlsx»</b> (en el panel 04): simula{' '}
+          <b>todas las distribuciones con todos sus métodos</b> con tus <K>R_i</K> y reúne en un Excel la comparación,
+          la validación y el χ² de cada uno, sus variables paso a paso y las pruebas de uniformidad de los <K>R_i</K>.
+        </p>
       </>
     ),
   },

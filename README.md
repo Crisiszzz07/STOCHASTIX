@@ -41,6 +41,21 @@ de paridad, por lo que se usa `R_i = X_i / M`.
 Si la secuencia no alcanza para N variables aparece **OVERFLOW** (o activa "Reciclar la secuencia").
 Los R_i iguales a 0 ó 1 se aceptan y se ajustan a (ε, 1−ε) sólo donde se toma un logaritmo (**CLAMPED**).
 
+## Reporte .xlsx completo
+
+El botón **«Exportar reporte completo .xlsx»** (panel 04, y también en el Data Drawer) simula **todas las
+distribuciones con todos sus métodos** sobre la misma secuencia de R_i y lo reúne en un solo Excel, con el estilo de
+la plantilla de simulacion-trabajo (título en la fila 1, cabeceras en la fila 4) y fórmulas reales de Excel.
+Cada distribución usa sus propios parámetros y su propia pregunta (la página los recuerda por distribución).
+
+| Hoja | Contenido |
+|---|---|
+| **Resumen general** | Fuente de R_i, resultado de las pruebas de uniformidad y una tabla comparativa de todos los métodos: N generadas, estado, media y varianza (simulada vs. teórica), favorables, P simulada, P teórica, error relativo, IC 95 %, veredicto, χ² y enlace a su hoja. ★ marca el método que se estaba viendo. |
+| **Pruebas R_i** | Promedios (Z₀), Frecuencias (χ², 10 clases) y Kolmogorov-Smirnov, como la auditoría del generador. |
+| **Distribución · Método** (una por método) | Variables paso a paso (`i · R_1…R_m · Nº R · X_i · ¿Cumple?`), panel con parámetros, condición, validación IC 95 %, estadísticos y χ², y tabla de frecuencias. |
+| **R_i** | La secuencia completa y las columnas ordenadas de Kolmogorov-Smirnov. Se puede volver a cargar en la página como fuente. |
+| **Teoría** | f(x) o p(k) y F(x) de cada distribución. |
+
 ## Distribuciones y métodos
 
 - **Binomial(n, p)**: suma de Bernoulli (`R < p`) o transformada inversa.

@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { Sample } from '../engine/distributions';
 import { Button, Segmented } from './ui';
@@ -12,10 +12,12 @@ export function DataDrawer({
   samples,
   test,
   onExport,
+  onExportXlsx,
 }: {
   samples: readonly Sample[];
   test: (x: number) => boolean;
   onExport: () => void;
+  onExportXlsx: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(0);
@@ -60,9 +62,14 @@ export function DataDrawer({
                 { value: 'no', label: 'No cumplen' },
               ]}
             />
-            <Button tone="green" className="ml-auto flex items-center gap-2 px-3 py-2 text-xs" onClick={onExport}>
-              <Download size={14} /> Exportar CSV
-            </Button>
+            <div className="ml-auto flex flex-wrap gap-2">
+              <Button className="flex items-center gap-2 px-3 py-2 text-xs" onClick={onExport}>
+                <Download size={14} /> Exportar CSV
+              </Button>
+              <Button tone="green" className="flex items-center gap-2 px-3 py-2 text-xs" onClick={onExportXlsx}>
+                <FileSpreadsheet size={14} /> Reporte .xlsx
+              </Button>
+            </div>
           </div>
 
           <div className="brut brut-scroll overflow-auto bg-paper">

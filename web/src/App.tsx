@@ -8,7 +8,8 @@ import { HistogramCanvas } from './components/HistogramCanvas';
 import { QueryConsole } from './components/QueryConsole';
 import { RangeSelector } from './components/RangeSelector';
 import { isFirstVisit, Tutorial, type TutorialTab } from './components/Tutorial';
-import { Panel, Stat, Sticker } from './components/ui';
+import { FileSpreadsheet } from 'lucide-react';
+import { Button, Panel, Stat, Sticker } from './components/ui';
 import {
   defaultParams, DIST_LIST, DISTRIBUTIONS, uniformsPerVariable, type DistKey, type DistSpec, type Params,
 } from './engine/distributions';
@@ -16,6 +17,7 @@ import { buildHistogram, sampleStats } from './engine/histogram';
 import { describeQuery, evaluateQuery, fmtNum, satisfies, type Query } from './engine/query';
 import { pingGo, useSimulation, type Engine, type SimInput } from './hooks/useSimulation';
 import { exportSamplesCsv } from './io/export';
+import { downloadReport } from './io/exportXlsx';
 import { parseFile, parsePlainText } from './io/parse';
 import type { ParsedSequence } from './io/sequence';
 
@@ -63,8 +65,15 @@ export default function App() {
   const spec = DISTRIBUTIONS[dist];
   const params = paramsBy[dist];
   const method = methodBy[dist];
-  const [query, setQuery] = useState<Query>(() => defaultQuery(DISTRIBUTIONS.normal, defaultParams('normal')));
-  const [statement, setStatement] = useState('');
+  // Cada distribución recuerda su propia pregunta y enunciado (el reporte los usa todos).
+  const [queryBy, setQueryBy] = useState<Record<DistKey, Query>>(
+    () => Object.fromEntries(DIST_LIST.map((d) => [d.key, defaultQuery(d, defaultParams(d.key))])) as Record<DistKey, Query>,
+  );
+  const [statementBy, setStatementBy] = useState<Partial<Record<DistKey, string>>>({});
+  const query = queryBy[dist];
+  const statement = statementBy[dist] ?? '';
+  const setQuery = (q: Query) => setQueryBy((x) => ({ ...x, [dist]: q }));
+  const setStatement = (t: string) => setStatementBy((x) => ({ ...x, [dist]: t }));
 
   // Layout effect: el atributo debe existir antes de que el canvas lea la paleta.
   useLayoutEffect(() => {
@@ -88,10 +97,7 @@ export default function App() {
     };
   }, [engine]);
 
-  const changeDist = (d: DistKey) => {
-    setDist(d);
-    setQuery(defaultQuery(DISTRIBUTIONS[d], paramsBy[d]));
-  };
+  const changeDist = (d: DistKey) => setDist(d);
   // Texto mostrado tras cargar un archivo: no se re-interpreta (conserva metadatos del Excel).
   const loadedText = useRef<string | null>(null);
   const loadFile = useCallback(async (file: File) => {
@@ -150,6 +156,13 @@ export default function App() {
   const stats = useMemo(() => sampleStats(values), [values]);
   const qres = useMemo(() => evaluateQuery(values, query, spec, params), [values, query, spec, params]);
   const test = useCallback((x: number) => satisfies(x, query), [query]);
+  const exportReport = () => {
+    if (!seq || seq.errors.length || !seq.values.length) return;
+    downloadReport({
+      seq, wrap, N, bins, paramsBy, queryBy, statementBy,
+      active: { dist, method },
+    });
+  };
 
   const needed = N * uniformsPerVariable(dist, method, params);
   const qStep = spec.discrete ? 1 : Number((Math.sqrt(spec.variance(params)) / 10).toPrecision(1)) || 0.1;
@@ -285,7 +298,23 @@ export default function App() {
 
           {!blocker && (
             <>
-              <Panel title="Query Engine · Preguntas concretas" kicker="04" tone="pink" tour="query">
+              <Panel
+                title="Query Engine · Preguntas concretas"
+                kicker="04"
+                tone="pink"
+                tour="query"
+                right={
+                  <Button
+                    tone="green"
+                    className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
+                    onClick={exportReport}
+                    title="Excel con TODAS las distribuciones y métodos: comparación, validación, χ², variables, frecuencias y pruebas de los R_i"
+                    data-tour="export"
+                  >
+                    <FileSpreadsheet size={14} /> Exportar reporte completo .xlsx
+                  </Button>
+                }
+              >
                 <QueryConsole
                   query={query}
                   onChange={setQuery}
@@ -304,6 +333,7 @@ export default function App() {
                 <DataDrawer
                   samples={result?.samples ?? []}
                   test={test}
+                  onExportXlsx={exportReport}
                   onExport={() =>
                     exportSamplesCsv(result?.samples ?? [], test, {
                       dist: spec.notation(params),
